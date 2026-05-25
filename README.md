@@ -696,6 +696,7 @@ browser = launch(args=[
 - [`recaptcha_score.py`](examples/recaptcha_score.py) — Check your reCAPTCHA v3 score
 - [`stealth_test.py`](examples/stealth_test.py) — Run against 6 detection sites
 - [`fingerprint_scan_test.py`](examples/fingerprint_scan_test.py) — Test against fingerprint-scan.com and CreepJS
+- [`high_frequency_crawler.py`](examples/high_frequency_crawler.py) — Persistent scheduled crawler (queue, retries, circuit breaker, incremental state)
 
 **JavaScript** — see [`js/examples/`](js/examples/):
 - [`basic-playwright.ts`](js/examples/basic-playwright.ts) — Playwright launch and load
