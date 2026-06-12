@@ -691,7 +691,12 @@ function patchSingleFrame(
   const origFrameTap = (frame as any).tap?.bind(frame);
   const origFrameDragAndDrop = frame.dragAndDrop.bind(frame);
 
-  const moveToFrameSelector = async (selector: string, options?: HumanActionOptions, inputBias = false) => {
+  const moveToFrameSelector = async (
+    selector: string,
+    options: HumanActionOptions | undefined,
+    inputBias: boolean,
+    remainingMs: () => number,
+  ) => {
     const callCfg = mergeConfig(cfg, options?.human_config ?? options);
     if (callCfg.idle_between_actions) {
       await humanIdle(raw, cursor.x, cursor.y, callCfg);
@@ -699,9 +704,9 @@ function patchSingleFrame(
 
     const locator = firstFrameLocator(frame, selector);
     if (typeof locator.scrollIntoViewIfNeeded === 'function') {
-      await locator.scrollIntoViewIfNeeded({ timeout: options?.timeout }).catch(() => undefined);
+      await locator.scrollIntoViewIfNeeded({ timeout: Math.max(1, remainingMs()) }).catch(() => undefined);
     }
-    const box = await locator.boundingBox({ timeout: options?.timeout ?? 30000 }).catch(() => null);
+    const box = await locator.boundingBox({ timeout: Math.max(1, remainingMs()) }).catch(() => null);
     if (!box) return null;
 
     const isInput = inputBias || await isFrameInputElement(frame, selector);
@@ -713,23 +718,32 @@ function patchSingleFrame(
   };
 
   const frameClick = async (selector: string, options?: HumanActionOptions) => {
-    const moved = await moveToFrameSelector(selector, options);
-    if (!moved) return origFrameClick(selector, options);
+    const timeout = options?.timeout ?? 30000;
+    const deadline = Date.now() + timeout;
+    const remainingMs = () => Math.max(0, deadline - Date.now());
+    const moved = await moveToFrameSelector(selector, options, false, remainingMs);
+    if (!moved) return origFrameClick(selector, { ...options, timeout: Math.max(1, remainingMs()) });
     await humanClick(raw, moved.isInput, moved.callCfg);
   };
 
   const getFrameCdp = async () => stealth.getCdpSession().catch(() => null);
 
   const frameHover = async (selector: string, options?: HumanActionOptions) => {
-    const moved = await moveToFrameSelector(selector, options, false);
-    if (!moved) return origFrameHover(selector, options);
+    const timeout = options?.timeout ?? 30000;
+    const deadline = Date.now() + timeout;
+    const remainingMs = () => Math.max(0, deadline - Date.now());
+    const moved = await moveToFrameSelector(selector, options, false, remainingMs);
+    if (!moved) return origFrameHover(selector, { ...options, timeout: Math.max(1, remainingMs()) });
   };
 
   (frame as any).click = frameClick;
 
   (frame as any).dblclick = async (selector: string, options?: HumanActionOptions) => {
-    const moved = await moveToFrameSelector(selector, options);
-    if (!moved) return origFrameDblclick(selector, options);
+    const timeout = options?.timeout ?? 30000;
+    const deadline = Date.now() + timeout;
+    const remainingMs = () => Math.max(0, deadline - Date.now());
+    const moved = await moveToFrameSelector(selector, options, false, remainingMs);
+    if (!moved) return origFrameDblclick(selector, { ...options, timeout: Math.max(1, remainingMs()) });
     await raw.down({ clickCount: 2 });
     await sleep(rand(30, 60));
     await raw.up({ clickCount: 2 });
@@ -820,8 +834,11 @@ function patchSingleFrame(
     timeout?: number;
     trial?: boolean;
   }) => {
-    const srcBox = await firstFrameLocator(frame, source).boundingBox({ timeout: options?.timeout ?? 30000 }).catch(() => null);
-    const tgtBox = await firstFrameLocator(frame, target).boundingBox({ timeout: options?.timeout ?? 30000 }).catch(() => null);
+    const timeout = options?.timeout ?? 30000;
+    const deadline = Date.now() + timeout;
+    const remainingMs = () => Math.max(1, deadline - Date.now());
+    const srcBox = await firstFrameLocator(frame, source).boundingBox({ timeout: remainingMs() }).catch(() => null);
+    const tgtBox = await firstFrameLocator(frame, target).boundingBox({ timeout: remainingMs() }).catch(() => null);
 
     if (srcBox && tgtBox) {
       const sx = srcBox.x + srcBox.width / 2;
@@ -837,7 +854,7 @@ function patchSingleFrame(
       await sleep(rand(80, 150));
       await originals.mouseUp();
     } else {
-      return origFrameDragAndDrop(source, target, options);
+      return origFrameDragAndDrop(source, target, { ...options, timeout: Math.max(1, remainingMs()) });
     }
   };
 }

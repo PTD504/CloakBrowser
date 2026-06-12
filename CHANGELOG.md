@@ -8,6 +8,15 @@ Changes are tagged: **[wrapper]** for Python/JS wrapper, **[binary]** for Chromi
 
 ## [Unreleased]
 
+## [0.3.31] — 2026-05-26
+
+- **[wrapper]** Route HTTP proxy credentials through `--proxy-server` flag, removing the need for Playwright's proxy auth handler on HTTP proxies
+- **[wrapper]** JS: export `buildContextOptions` helper for custom context creation (thanks [@honor2030](https://github.com/honor2030), #262)
+- **[wrapper]** Humanize: fix iframe coordinate offset in pointer-events check (thanks [@eofreternal](https://github.com/eofreternal), #303)
+- **[wrapper]** Humanize: use shared deadline for timeout budget in frame and ElementHandle methods (#307)
+- **[docker]** Clean up stale Xvfb lock so container survives restarts (thanks [@sparanoid](https://github.com/sparanoid), #284)
+- **[meta]** Add pip and npm ecosystems to Dependabot, bump GitHub Actions (#309)
+
 ## [0.3.30] — 2026-05-21
 
 - **[binary]** New build 146.0.7680.177.5 for Linux x64 + Windows x64 — 58 source-level fingerprint patches (up from 57)

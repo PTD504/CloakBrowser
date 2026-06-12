@@ -3,6 +3,7 @@
 import asyncio
 import importlib.machinery
 import importlib.util
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -24,6 +25,8 @@ parse_connection_params = _mod.parse_connection_params
 parse_cli_args = _mod.parse_cli_args
 ChromePool = _mod.ChromePool
 _default_data_dir = _mod._default_data_dir
+_external_host = _mod._external_host
+_ws_scheme = _mod._ws_scheme
 SAFE_SEED_RE = _mod.SAFE_SEED_RE
 RESERVED_SEEDS = _mod.RESERVED_SEEDS
 
@@ -90,6 +93,7 @@ class TestParseCliArgs:
         assert config["port"] == 9222
         assert config["headless"] is True
         assert config["data_dir"] is not None
+        assert config["idle_timeout"] == 0.0
         assert passthrough == []
 
     def test_custom_port(self):
@@ -128,6 +132,31 @@ class TestParseCliArgs:
         _, passthrough = parse_cli_args(["--data-dir=/tmp/test"])
         assert not any(a.startswith("--data-dir=") for a in passthrough)
 
+    def test_idle_timeout_not_in_passthrough(self):
+        config, passthrough = parse_cli_args(["--idle-timeout=30", "--no-sandbox"])
+        assert config["idle_timeout"] == 30.0
+        assert "--idle-timeout=30" not in passthrough
+        assert "--no-sandbox" in passthrough
+
+    @pytest.mark.parametrize("value", ["0", "off", "false", "none", "disabled"])
+    def test_idle_timeout_disabled_values(self, value):
+        config, _ = parse_cli_args([f"--idle-timeout={value}"])
+        assert config["idle_timeout"] == 0.0
+
+    def test_idle_timeout_env_default(self, monkeypatch):
+        monkeypatch.setenv("CLOAKSERVE_IDLE_TIMEOUT", "2.5")
+        config, _ = parse_cli_args([])
+        assert config["idle_timeout"] == 2.5
+
+    def test_idle_timeout_cli_overrides_env(self, monkeypatch):
+        monkeypatch.setenv("CLOAKSERVE_IDLE_TIMEOUT", "2.5")
+        config, _ = parse_cli_args(["--idle-timeout=9"])
+        assert config["idle_timeout"] == 9.0
+
+    def test_idle_timeout_rejects_negative_values(self):
+        with pytest.raises(ValueError):
+            parse_cli_args(["--idle-timeout=-1"])
+
     @patch("os.path.exists", return_value=True)
     def test_default_data_dir_docker(self, _mock):
         assert _default_data_dir() == "/tmp/cloakserve"
@@ -136,6 +165,141 @@ class TestParseCliArgs:
     def test_default_data_dir_bare_metal(self, _mock):
         result = _default_data_dir()
         assert result.endswith(".cloakbrowser/cloakserve")
+
+
+# ---------------------------------------------------------------------------
+# External host detection
+# ---------------------------------------------------------------------------
+
+
+class TestExternalHost:
+    """Test public host selection for rewritten CDP WebSocket URLs."""
+
+    class _Request:
+        def __init__(self, headers, port=9222, scheme="http", query_string=""):
+            self.headers = headers
+            self.app = {"port": port}
+            self.scheme = scheme
+            self.query_string = query_string
+
+    def test_forwarded_host_overrides_internal_host(self):
+        request = self._Request({
+            "Host": "localhost:8080",
+            "X-Forwarded-Host": "cdp.example.com:443",
+        })
+        assert _external_host(request) == "cdp.example.com:443"
+
+    def test_forwarded_host_uses_first_value(self):
+        request = self._Request({
+            "Host": "internal:9222",
+            "X-Forwarded-Host": "public.example.com, internal:9222",
+        })
+        assert _external_host(request) == "public.example.com"
+
+    def test_blank_forwarded_host_falls_back_to_host_header(self):
+        request = self._Request({
+            "Host": "internal:9222",
+            "X-Forwarded-Host": "   ",
+        })
+        assert _external_host(request) == "internal:9222"
+
+    def test_falls_back_to_host_header(self):
+        request = self._Request({"Host": "localhost:9222"})
+        assert _external_host(request) == "localhost:9222"
+
+    def test_falls_back_to_app_port_without_host_header(self):
+        request = self._Request({}, port=9333)
+        assert _external_host(request) == "localhost:9333"
+
+    def test_forwarded_proto_selects_wss(self):
+        request = self._Request({"X-Forwarded-Proto": "https"}, scheme="http")
+        assert _ws_scheme(request) == "wss"
+
+    def test_forwarded_proto_uses_first_value(self):
+        request = self._Request({"X-Forwarded-Proto": "https, http"}, scheme="http")
+        assert _ws_scheme(request) == "wss"
+
+
+class TestHandlerURLRewriting:
+    """Verify handlers rewrite CDP WebSocket URLs to the public cloakserve endpoint."""
+
+    class _Request:
+        def __init__(self, headers, query_string="fingerprint=seed1", port=9222, scheme="http"):
+            self.headers = headers
+            self.query_string = query_string
+            self.scheme = scheme
+            self.app = {"port": port, "pool": self._Pool()}
+
+        class _Pool:
+            async def get_or_launch(self, **_kwargs):
+                return SimpleNamespace(cdp_port=5100)
+
+    class _FakeResponse:
+        def __init__(self, data):
+            self._data = data
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc):
+            return None
+
+        async def json(self):
+            return self._data
+
+    class _FakeSession:
+        def __init__(self, data):
+            self._data = data
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc):
+            return None
+
+        def get(self, *_args, **_kwargs):
+            return TestHandlerURLRewriting._FakeResponse(self._data)
+
+    def _patch_session(self, monkeypatch, data):
+        monkeypatch.setattr(
+            _mod.aiohttp,
+            "ClientSession",
+            lambda *_args, **_kwargs: self._FakeSession(data),
+        )
+
+    def test_json_version_uses_forwarded_host_and_proto(self, monkeypatch):
+        self._patch_session(monkeypatch, {
+            "webSocketDebuggerUrl": "ws://127.0.0.1:5100/devtools/browser/browser-guid",
+        })
+        request = self._Request({
+            "Host": "internal:9222",
+            "X-Forwarded-Host": "cdp.example.com",
+            "X-Forwarded-Proto": "https",
+        })
+
+        response = asyncio.run(_mod.handle_json_version(request))
+        payload = json.loads(response.text)
+
+        assert payload["webSocketDebuggerUrl"] == (
+            "wss://cdp.example.com/fingerprint/seed1/devtools/browser/browser-guid"
+        )
+
+    def test_json_list_uses_forwarded_host_and_proto(self, monkeypatch):
+        self._patch_session(monkeypatch, [{
+            "webSocketDebuggerUrl": "ws://127.0.0.1:5100/devtools/page/page-guid",
+        }])
+        request = self._Request({
+            "Host": "internal:9222",
+            "X-Forwarded-Host": "cdp.example.com",
+            "X-Forwarded-Proto": "https",
+        })
+
+        response = asyncio.run(_mod.handle_json_list(request))
+        payload = json.loads(response.text)
+
+        assert payload[0]["webSocketDebuggerUrl"] == (
+            "wss://cdp.example.com/fingerprint/seed1/devtools/page/page-guid"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -293,12 +457,21 @@ class TestHandlerURLRewriting:
 class TestConnectionTracking:
     """Test ChromePool.connect() / disconnect() without real Chrome."""
 
-    def _make_pool(self):
+    def _make_pool(self, idle_timeout: float = 0.0):
         return ChromePool(
             binary="/fake/chrome",
             global_args=[],
             headless=True,
             data_dir="/tmp/test-cloakserve",
+            idle_timeout=idle_timeout,
+        )
+
+    def _track_process(self, pool, seed="seed1"):
+        pool._processes[seed] = SimpleNamespace()
+
+    def _track_live_process(self, pool, seed="seed1"):
+        pool._processes[seed] = SimpleNamespace(
+            process=SimpleNamespace(poll=lambda: None),
         )
 
     def test_connect_increments(self):
@@ -334,6 +507,83 @@ class TestConnectionTracking:
         pool.disconnect("a")
         assert pool._connections["a"] == 1
         assert pool._connections["b"] == 1
+
+    def test_idle_cleanup_disabled_by_default(self):
+        async def run():
+            pool = self._make_pool()
+            self._track_process(pool)
+
+            pool.connect("seed1")
+            pool.disconnect("seed1")
+
+            await asyncio.sleep(0)
+            assert pool._idle_tasks == {}
+
+        asyncio.run(run())
+
+    def test_disconnect_to_zero_schedules_idle_cleanup(self):
+        async def run():
+            pool = self._make_pool(idle_timeout=0.01)
+            self._track_process(pool)
+            cleaned = []
+
+            async def fake_cleanup(seed):
+                cleaned.append(seed)
+                pool._processes.pop(seed, None)
+
+            pool._cleanup_process = fake_cleanup
+            pool.connect("seed1")
+            pool.disconnect("seed1")
+
+            assert "seed1" in pool._idle_tasks
+            await asyncio.sleep(0.05)
+            assert cleaned == ["seed1"]
+            assert "seed1" not in pool._idle_tasks
+
+        asyncio.run(run())
+
+    def test_reconnect_cancels_pending_idle_cleanup(self):
+        async def run():
+            pool = self._make_pool(idle_timeout=0.03)
+            self._track_process(pool)
+            cleaned = []
+
+            async def fake_cleanup(seed):
+                cleaned.append(seed)
+                pool._processes.pop(seed, None)
+
+            pool._cleanup_process = fake_cleanup
+            pool.connect("seed1")
+            pool.disconnect("seed1")
+            assert "seed1" in pool._idle_tasks
+
+            pool.connect("seed1")
+            await asyncio.sleep(0.06)
+
+            assert cleaned == []
+            assert pool._connections["seed1"] == 1
+            assert "seed1" not in pool._idle_tasks
+
+        asyncio.run(run())
+
+    def test_discovery_refreshes_pending_idle_cleanup(self):
+        async def run():
+            pool = self._make_pool(idle_timeout=1.0)
+            self._track_live_process(pool)
+
+            pool.connect("seed1")
+            pool.disconnect("seed1")
+            first_task = pool._idle_tasks["seed1"]
+
+            await pool.get_or_launch("seed1")
+            second_task = pool._idle_tasks["seed1"]
+
+            assert second_task is not first_task
+            pool._cancel_idle_cleanup("seed1")
+            await asyncio.sleep(0)
+            assert "seed1" not in pool._idle_tasks
+
+        asyncio.run(run())
 
 
 # ---------------------------------------------------------------------------

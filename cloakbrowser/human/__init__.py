@@ -1257,13 +1257,16 @@ def _patch_single_element_handle_sync(
         call_cfg = merge_config(cfg, kwargs.get("human_config"))
         force = kwargs.get("force", False)
         timeout = kwargs.get("timeout", 30000)
+        deadline = time.monotonic() + timeout / 1000.0
+        def _remaining_ms():
+            return max(0, (deadline - time.monotonic()) * 1000)
         if not force:
-            ensure_actionable_handle(page, el, CHECKS_CLICK, timeout=timeout, force=force)
+            ensure_actionable_handle(page, el, CHECKS_CLICK, timeout=_remaining_ms(), force=force)
         info = _move_to_element(call_cfg)
         if info is None:
             return _orig_click(**kwargs)
         if not force:
-            check_pointer_events_handle(page, el, cursor.x, cursor.y, timeout=min(timeout, 5000))
+            check_pointer_events_handle(page, el, cursor.x, cursor.y, timeout=min(_remaining_ms(), 5000))
         human_click(raw_mouse, info['is_inp'], call_cfg)
 
     # --- el.dblclick() ---
@@ -1271,13 +1274,16 @@ def _patch_single_element_handle_sync(
         call_cfg = merge_config(cfg, kwargs.get("human_config"))
         force = kwargs.get("force", False)
         timeout = kwargs.get("timeout", 30000)
+        deadline = time.monotonic() + timeout / 1000.0
+        def _remaining_ms():
+            return max(0, (deadline - time.monotonic()) * 1000)
         if not force:
-            ensure_actionable_handle(page, el, CHECKS_CLICK, timeout=timeout, force=force)
+            ensure_actionable_handle(page, el, CHECKS_CLICK, timeout=_remaining_ms(), force=force)
         info = _move_to_element(call_cfg)
         if info is None:
             return _orig_dblclick(**kwargs)
         if not force:
-            check_pointer_events_handle(page, el, cursor.x, cursor.y, timeout=min(timeout, 5000))
+            check_pointer_events_handle(page, el, cursor.x, cursor.y, timeout=min(_remaining_ms(), 5000))
         raw_mouse.down(click_count=2)
         sleep_ms(rand(30, 60))
         raw_mouse.up(click_count=2)
@@ -1287,8 +1293,11 @@ def _patch_single_element_handle_sync(
         call_cfg = merge_config(cfg, kwargs.get("human_config"))
         force = kwargs.get("force", False)
         timeout = kwargs.get("timeout", 30000)
+        deadline = time.monotonic() + timeout / 1000.0
+        def _remaining_ms():
+            return max(0, (deadline - time.monotonic()) * 1000)
         if not force:
-            ensure_actionable_handle(page, el, CHECKS_HOVER, timeout=timeout, force=force)
+            ensure_actionable_handle(page, el, CHECKS_HOVER, timeout=_remaining_ms(), force=force)
         info = _move_to_element(call_cfg)
         if info is None:
             return _orig_hover(**kwargs)
@@ -1298,13 +1307,16 @@ def _patch_single_element_handle_sync(
         call_cfg = merge_config(cfg, kwargs.get("human_config"))
         force = kwargs.get("force", False)
         timeout = kwargs.get("timeout", 30000)
+        deadline = time.monotonic() + timeout / 1000.0
+        def _remaining_ms():
+            return max(0, (deadline - time.monotonic()) * 1000)
         if not force:
-            ensure_actionable_handle(page, el, CHECKS_INPUT, timeout=timeout, force=force)
+            ensure_actionable_handle(page, el, CHECKS_INPUT, timeout=_remaining_ms(), force=force)
         info = _move_to_element(call_cfg)
         if info is None:
             return _orig_type(text, **kwargs)
         if not force:
-            check_pointer_events_handle(page, el, cursor.x, cursor.y, timeout=min(timeout, 5000))
+            check_pointer_events_handle(page, el, cursor.x, cursor.y, timeout=min(_remaining_ms(), 5000))
         human_click(raw_mouse, info['is_inp'], call_cfg)
         sleep_ms(rand(100, 250))
         human_type(page, raw_keyboard, text, call_cfg, cdp_session=cdp_session)
@@ -1314,13 +1326,16 @@ def _patch_single_element_handle_sync(
         call_cfg = merge_config(cfg, kwargs.get("human_config"))
         force = kwargs.get("force", False)
         timeout = kwargs.get("timeout", 30000)
+        deadline = time.monotonic() + timeout / 1000.0
+        def _remaining_ms():
+            return max(0, (deadline - time.monotonic()) * 1000)
         if not force:
-            ensure_actionable_handle(page, el, CHECKS_INPUT, timeout=timeout, force=force)
+            ensure_actionable_handle(page, el, CHECKS_INPUT, timeout=_remaining_ms(), force=force)
         info = _move_to_element(call_cfg)
         if info is None:
             return _orig_fill(value, **kwargs)
         if not force:
-            check_pointer_events_handle(page, el, cursor.x, cursor.y, timeout=min(timeout, 5000))
+            check_pointer_events_handle(page, el, cursor.x, cursor.y, timeout=min(_remaining_ms(), 5000))
         human_click(raw_mouse, info['is_inp'], call_cfg)
         sleep_ms(rand(100, 250))
         originals.keyboard_press(_SELECT_ALL)
@@ -1367,8 +1382,11 @@ def _patch_single_element_handle_sync(
     def _human_el_select_option(value: Any = None, **kwargs: Any) -> Any:
         force = kwargs.get("force", False)
         timeout = kwargs.get("timeout", 30000)
+        deadline = time.monotonic() + timeout / 1000.0
+        def _remaining_ms():
+            return max(0, (deadline - time.monotonic()) * 1000)
         if not force:
-            ensure_actionable_handle(page, el, CHECKS_FOCUS, timeout=timeout, force=force)
+            ensure_actionable_handle(page, el, CHECKS_FOCUS, timeout=_remaining_ms(), force=force)
         info = _move_to_element()
         if info is None:
             return _orig_select_option(value, **kwargs)
@@ -1380,8 +1398,11 @@ def _patch_single_element_handle_sync(
     def _human_el_check(**kwargs: Any) -> None:
         force = kwargs.get("force", False)
         timeout = kwargs.get("timeout", 30000)
+        deadline = time.monotonic() + timeout / 1000.0
+        def _remaining_ms():
+            return max(0, (deadline - time.monotonic()) * 1000)
         if not force:
-            ensure_actionable_handle(page, el, CHECKS_CHECK, timeout=timeout, force=force)
+            ensure_actionable_handle(page, el, CHECKS_CHECK, timeout=_remaining_ms(), force=force)
         try:
             if el.is_checked():
                 return
@@ -1391,15 +1412,18 @@ def _patch_single_element_handle_sync(
         if info is None:
             return _orig_check(**kwargs)
         if not force:
-            check_pointer_events_handle(page, el, cursor.x, cursor.y, timeout=min(timeout, 5000))
+            check_pointer_events_handle(page, el, cursor.x, cursor.y, timeout=min(_remaining_ms(), 5000))
         human_click(raw_mouse, info['is_inp'], cfg)
 
     # --- el.uncheck() ---
     def _human_el_uncheck(**kwargs: Any) -> None:
         force = kwargs.get("force", False)
         timeout = kwargs.get("timeout", 30000)
+        deadline = time.monotonic() + timeout / 1000.0
+        def _remaining_ms():
+            return max(0, (deadline - time.monotonic()) * 1000)
         if not force:
-            ensure_actionable_handle(page, el, CHECKS_CHECK, timeout=timeout, force=force)
+            ensure_actionable_handle(page, el, CHECKS_CHECK, timeout=_remaining_ms(), force=force)
         try:
             if not el.is_checked():
                 return
@@ -1409,15 +1433,18 @@ def _patch_single_element_handle_sync(
         if info is None:
             return _orig_uncheck(**kwargs)
         if not force:
-            check_pointer_events_handle(page, el, cursor.x, cursor.y, timeout=min(timeout, 5000))
+            check_pointer_events_handle(page, el, cursor.x, cursor.y, timeout=min(_remaining_ms(), 5000))
         human_click(raw_mouse, info['is_inp'], cfg)
 
     # --- el.set_checked() ---
     def _human_el_set_checked(checked: bool, **kwargs: Any) -> None:
         force = kwargs.get("force", False)
         timeout = kwargs.get("timeout", 30000)
+        deadline = time.monotonic() + timeout / 1000.0
+        def _remaining_ms():
+            return max(0, (deadline - time.monotonic()) * 1000)
         if not force:
-            ensure_actionable_handle(page, el, CHECKS_CHECK, timeout=timeout, force=force)
+            ensure_actionable_handle(page, el, CHECKS_CHECK, timeout=_remaining_ms(), force=force)
         try:
             current = el.is_checked()
             if current == checked:
@@ -1429,7 +1456,7 @@ def _patch_single_element_handle_sync(
             return _orig_set_checked(checked, **kwargs)
         if info:
             if not force:
-                check_pointer_events_handle(page, el, cursor.x, cursor.y, timeout=min(timeout, 5000))
+                check_pointer_events_handle(page, el, cursor.x, cursor.y, timeout=min(_remaining_ms(), 5000))
             human_click(raw_mouse, info['is_inp'], cfg)
 
     # --- el.tap() ---
@@ -2158,13 +2185,16 @@ def _patch_single_element_handle_async(
         call_cfg = merge_config(cfg, kwargs.get("human_config"))
         force = kwargs.get("force", False)
         timeout = kwargs.get("timeout", 30000)
+        deadline = time.monotonic() + timeout / 1000.0
+        def _remaining_ms():
+            return max(0, (deadline - time.monotonic()) * 1000)
         if not force:
-            await async_ensure_actionable_handle(page, el, CHECKS_CLICK, timeout=timeout, force=force)
+            await async_ensure_actionable_handle(page, el, CHECKS_CLICK, timeout=_remaining_ms(), force=force)
         info = await _move_to_element(call_cfg)
         if info is None:
             return await _orig_click(**kwargs)
         if not force:
-            await async_check_pointer_events_handle(page, el, cursor.x, cursor.y, timeout=min(timeout, 5000))
+            await async_check_pointer_events_handle(page, el, cursor.x, cursor.y, timeout=min(_remaining_ms(), 5000))
         await async_human_click(raw_mouse, info['is_inp'], call_cfg)
 
     # --- el.dblclick() ---
@@ -2172,13 +2202,16 @@ def _patch_single_element_handle_async(
         call_cfg = merge_config(cfg, kwargs.get("human_config"))
         force = kwargs.get("force", False)
         timeout = kwargs.get("timeout", 30000)
+        deadline = time.monotonic() + timeout / 1000.0
+        def _remaining_ms():
+            return max(0, (deadline - time.monotonic()) * 1000)
         if not force:
-            await async_ensure_actionable_handle(page, el, CHECKS_CLICK, timeout=timeout, force=force)
+            await async_ensure_actionable_handle(page, el, CHECKS_CLICK, timeout=_remaining_ms(), force=force)
         info = await _move_to_element(call_cfg)
         if info is None:
             return await _orig_dblclick(**kwargs)
         if not force:
-            await async_check_pointer_events_handle(page, el, cursor.x, cursor.y, timeout=min(timeout, 5000))
+            await async_check_pointer_events_handle(page, el, cursor.x, cursor.y, timeout=min(_remaining_ms(), 5000))
         await raw_mouse.down(click_count=2)
         await async_sleep_ms(rand(30, 60))
         await raw_mouse.up(click_count=2)
@@ -2188,8 +2221,11 @@ def _patch_single_element_handle_async(
         call_cfg = merge_config(cfg, kwargs.get("human_config"))
         force = kwargs.get("force", False)
         timeout = kwargs.get("timeout", 30000)
+        deadline = time.monotonic() + timeout / 1000.0
+        def _remaining_ms():
+            return max(0, (deadline - time.monotonic()) * 1000)
         if not force:
-            await async_ensure_actionable_handle(page, el, CHECKS_HOVER, timeout=timeout, force=force)
+            await async_ensure_actionable_handle(page, el, CHECKS_HOVER, timeout=_remaining_ms(), force=force)
         info = await _move_to_element(call_cfg)
         if info is None:
             return await _orig_hover(**kwargs)
@@ -2199,13 +2235,16 @@ def _patch_single_element_handle_async(
         call_cfg = merge_config(cfg, kwargs.get("human_config"))
         force = kwargs.get("force", False)
         timeout = kwargs.get("timeout", 30000)
+        deadline = time.monotonic() + timeout / 1000.0
+        def _remaining_ms():
+            return max(0, (deadline - time.monotonic()) * 1000)
         if not force:
-            await async_ensure_actionable_handle(page, el, CHECKS_INPUT, timeout=timeout, force=force)
+            await async_ensure_actionable_handle(page, el, CHECKS_INPUT, timeout=_remaining_ms(), force=force)
         info = await _move_to_element(call_cfg)
         if info is None:
             return await _orig_type(text, **kwargs)
         if not force:
-            await async_check_pointer_events_handle(page, el, cursor.x, cursor.y, timeout=min(timeout, 5000))
+            await async_check_pointer_events_handle(page, el, cursor.x, cursor.y, timeout=min(_remaining_ms(), 5000))
         await async_human_click(raw_mouse, info['is_inp'], call_cfg)
         await async_sleep_ms(rand(100, 250))
         cdp = await _get_cdp()
@@ -2216,13 +2255,16 @@ def _patch_single_element_handle_async(
         call_cfg = merge_config(cfg, kwargs.get("human_config"))
         force = kwargs.get("force", False)
         timeout = kwargs.get("timeout", 30000)
+        deadline = time.monotonic() + timeout / 1000.0
+        def _remaining_ms():
+            return max(0, (deadline - time.monotonic()) * 1000)
         if not force:
-            await async_ensure_actionable_handle(page, el, CHECKS_INPUT, timeout=timeout, force=force)
+            await async_ensure_actionable_handle(page, el, CHECKS_INPUT, timeout=_remaining_ms(), force=force)
         info = await _move_to_element(call_cfg)
         if info is None:
             return await _orig_fill(value, **kwargs)
         if not force:
-            await async_check_pointer_events_handle(page, el, cursor.x, cursor.y, timeout=min(timeout, 5000))
+            await async_check_pointer_events_handle(page, el, cursor.x, cursor.y, timeout=min(_remaining_ms(), 5000))
         await async_human_click(raw_mouse, info['is_inp'], call_cfg)
         await async_sleep_ms(rand(100, 250))
         await originals.keyboard_press(_SELECT_ALL)
@@ -2269,8 +2311,11 @@ def _patch_single_element_handle_async(
     async def _human_el_select_option(value: Any = None, **kwargs: Any) -> Any:
         force = kwargs.get("force", False)
         timeout = kwargs.get("timeout", 30000)
+        deadline = time.monotonic() + timeout / 1000.0
+        def _remaining_ms():
+            return max(0, (deadline - time.monotonic()) * 1000)
         if not force:
-            await async_ensure_actionable_handle(page, el, CHECKS_FOCUS, timeout=timeout, force=force)
+            await async_ensure_actionable_handle(page, el, CHECKS_FOCUS, timeout=_remaining_ms(), force=force)
         info = await _move_to_element()
         if info is None:
             return await _orig_select_option(value, **kwargs)
@@ -2282,8 +2327,11 @@ def _patch_single_element_handle_async(
     async def _human_el_check(**kwargs: Any) -> None:
         force = kwargs.get("force", False)
         timeout = kwargs.get("timeout", 30000)
+        deadline = time.monotonic() + timeout / 1000.0
+        def _remaining_ms():
+            return max(0, (deadline - time.monotonic()) * 1000)
         if not force:
-            await async_ensure_actionable_handle(page, el, CHECKS_CHECK, timeout=timeout, force=force)
+            await async_ensure_actionable_handle(page, el, CHECKS_CHECK, timeout=_remaining_ms(), force=force)
         try:
             if await el.is_checked():
                 return
@@ -2293,15 +2341,18 @@ def _patch_single_element_handle_async(
         if info is None:
             return await _orig_check(**kwargs)
         if not force:
-            await async_check_pointer_events_handle(page, el, cursor.x, cursor.y, timeout=min(timeout, 5000))
+            await async_check_pointer_events_handle(page, el, cursor.x, cursor.y, timeout=min(_remaining_ms(), 5000))
         await async_human_click(raw_mouse, info['is_inp'], cfg)
 
     # --- el.uncheck() ---
     async def _human_el_uncheck(**kwargs: Any) -> None:
         force = kwargs.get("force", False)
         timeout = kwargs.get("timeout", 30000)
+        deadline = time.monotonic() + timeout / 1000.0
+        def _remaining_ms():
+            return max(0, (deadline - time.monotonic()) * 1000)
         if not force:
-            await async_ensure_actionable_handle(page, el, CHECKS_CHECK, timeout=timeout, force=force)
+            await async_ensure_actionable_handle(page, el, CHECKS_CHECK, timeout=_remaining_ms(), force=force)
         try:
             if not await el.is_checked():
                 return
@@ -2311,15 +2362,18 @@ def _patch_single_element_handle_async(
         if info is None:
             return await _orig_uncheck(**kwargs)
         if not force:
-            await async_check_pointer_events_handle(page, el, cursor.x, cursor.y, timeout=min(timeout, 5000))
+            await async_check_pointer_events_handle(page, el, cursor.x, cursor.y, timeout=min(_remaining_ms(), 5000))
         await async_human_click(raw_mouse, info['is_inp'], cfg)
 
     # --- el.set_checked() ---
     async def _human_el_set_checked(checked: bool, **kwargs: Any) -> None:
         force = kwargs.get("force", False)
         timeout = kwargs.get("timeout", 30000)
+        deadline = time.monotonic() + timeout / 1000.0
+        def _remaining_ms():
+            return max(0, (deadline - time.monotonic()) * 1000)
         if not force:
-            await async_ensure_actionable_handle(page, el, CHECKS_CHECK, timeout=timeout, force=force)
+            await async_ensure_actionable_handle(page, el, CHECKS_CHECK, timeout=_remaining_ms(), force=force)
         try:
             current = await el.is_checked()
             if current == checked:
@@ -2331,7 +2385,7 @@ def _patch_single_element_handle_async(
             return await _orig_set_checked(checked, **kwargs)
         if info:
             if not force:
-                await async_check_pointer_events_handle(page, el, cursor.x, cursor.y, timeout=min(timeout, 5000))
+                await async_check_pointer_events_handle(page, el, cursor.x, cursor.y, timeout=min(_remaining_ms(), 5000))
             await async_human_click(raw_mouse, info['is_inp'], cfg)
 
     # --- el.tap() ---

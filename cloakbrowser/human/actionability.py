@@ -196,8 +196,14 @@ def ensure_stable(
 # Pointer-events check (post-scroll, at actual click coordinates)
 # ---------------------------------------------------------------------------
 
-_POINTER_EVENTS_LOCATOR_JS = """(expected, coords) => {
-    const target = document.elementFromPoint(coords.x, coords.y);
+# data.box is page-space (from bounding_box); rect is frame-local. Their delta
+# is the iframe offset, needed to map page-space click coords into the frame's
+# own viewport before elementFromPoint. For main-frame elements the offset is 0.
+_POINTER_EVENTS_LOCATOR_JS = """(expected, data) => {
+    const rect = expected.getBoundingClientRect();
+    const frameOffsetX = data.box ? data.box.x - rect.x : 0;
+    const frameOffsetY = data.box ? data.box.y - rect.y : 0;
+    const target = document.elementFromPoint(data.x - frameOffsetX, data.y - frameOffsetY);
     if (!target) return { hit: false, reason: 'no_element_at_point', covering: 'none' };
     let node = target;
     while (node) { if (node === expected) return { hit: true }; node = node.parentNode; }
@@ -205,8 +211,11 @@ _POINTER_EVENTS_LOCATOR_JS = """(expected, coords) => {
     return { hit: false, reason: 'covered', covering: target.tagName || 'unknown' };
 }"""
 
-_POINTER_EVENTS_HANDLE_JS = """(expected, coords) => {
-    const target = document.elementFromPoint(coords.x, coords.y);
+_POINTER_EVENTS_HANDLE_JS = """(expected, data) => {
+    const rect = expected.getBoundingClientRect();
+    const frameOffsetX = data.box ? data.box.x - rect.x : 0;
+    const frameOffsetY = data.box ? data.box.y - rect.y : 0;
+    const target = document.elementFromPoint(data.x - frameOffsetX, data.y - frameOffsetY);
     if (!target) return { hit: false, reason: 'no_element_at_point', covering: 'none' };
     let node = target;
     while (node) { if (node === expected) return { hit: true }; node = node.parentNode; }
@@ -230,17 +239,19 @@ def check_pointer_events(
     """
     deadline = time.monotonic() + timeout / 1000.0
     attempt = 0
-    coords = {"x": x, "y": y}
 
     while True:
         try:
             loc = page.locator(selector).first
-            result = loc.evaluate(_POINTER_EVENTS_LOCATOR_JS, coords)
+            box = loc.bounding_box(timeout=max(1, min((deadline - time.monotonic()) * 1000, 1000)))
+            result = loc.evaluate(_POINTER_EVENTS_LOCATOR_JS, {"x": x, "y": y, "box": box})
         except Exception as exc:
             logger.debug("pointer_events check failed for %r: %s", selector, exc)
             result = None
 
-        if result and result.get("hit", False):
+        # Proceed if the check confirms a hit, or if it could not be determined
+        # (None) — failing closed would block legitimate clicks.
+        if result is None or result.get("hit", False):
             return
 
         covering = (result or {}).get("covering", "unknown")
@@ -322,15 +333,16 @@ def check_pointer_events_handle(
     deadline = time.monotonic() + timeout / 1000.0
     attempt = 0
 
-    coords = {"x": x, "y": y}
-
     while True:
         try:
-            result = el.evaluate(_POINTER_EVENTS_HANDLE_JS, coords)
+            box = el.bounding_box()
+            result = el.evaluate(_POINTER_EVENTS_HANDLE_JS, {"x": x, "y": y, "box": box})
         except Exception:
             result = None
 
-        if result and result.get("hit", False):
+        # Proceed if the check confirms a hit, or if it could not be determined
+        # (None) — failing closed would block legitimate clicks.
+        if result is None or result.get("hit", False):
             return
 
         covering = (result or {}).get("covering", "unknown")

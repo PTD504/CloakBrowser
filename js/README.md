@@ -11,7 +11,7 @@
 
 Drop-in Playwright/Puppeteer replacement. Same API, same code — just swap the import. **3 lines of code, 30 seconds to unblock.**
 
-- **48 source-level C++ patches** — canvas, WebGL, audio, fonts, GPU, screen, WebRTC, network timing, automation signals
+- **58 source-level C++ patches** — canvas, WebGL, audio, fonts, GPU, screen, WebRTC, network timing, automation signals
 - **0.9 reCAPTCHA v3 score** — human-level, server-verified
 - **Passes Cloudflare Turnstile**, FingerprintJS, BrowserScan — tested against 30+ detection sites
 - **`npm install cloakbrowser`** — binary auto-downloads, auto-updates, zero config
@@ -39,10 +39,23 @@ import { launch } from 'cloakbrowser';
 
 const browser = await launch();
 const page = await browser.newPage();
-await page.goto('https://protected-site.com');
+await page.goto('https://example.com');
 console.log(await page.title());
 await browser.close();
 ```
+
+**For sites with anti-bot protection**, add a residential proxy and these flags:
+
+```javascript
+const browser = await launch({
+    proxy: 'http://user:pass@residential-proxy:port',
+    geoip: true,       // match timezone + locale to proxy IP
+    headless: false,    // some sites detect headless even with C++ patches
+    humanize: true,     // human-like mouse, keyboard, scroll
+});
+```
+
+See the [main README](https://github.com/CloakHQ/CloakBrowser#troubleshooting) for site-specific troubleshooting (FingerprintJS, Kasada, reCAPTCHA).
 
 ### Puppeteer
 
@@ -53,7 +66,7 @@ import { launch } from 'cloakbrowser/puppeteer';
 
 const browser = await launch();
 const page = await browser.newPage();
-await page.goto('https://protected-site.com');
+await page.goto('https://example.com');
 console.log(await page.title());
 await browser.close();
 ```
@@ -189,6 +202,18 @@ if (newVersion) console.log(`Updated to ${newVersion}`);
 | `CLOAKBROWSER_DOWNLOAD_URL` | `cloakbrowser.dev` | Custom download URL |
 | `CLOAKBROWSER_AUTO_UPDATE` | `true` | Set to `false` to disable background update checks |
 | `CLOAKBROWSER_SKIP_CHECKSUM` | `false` | Set to `true` to skip SHA-256 verification after download |
+| `CLOAKBROWSER_WIDEVINE_CDM` | — | Path to a sideloaded `WidevineCdm` directory (overrides auto-detection next to the binary) |
+| `CLOAKBROWSER_WIDEVINE` | `1` | Set to `0` to disable automatic Widevine hint-file seeding for persistent contexts |
+
+### Widevine / DRM
+
+The binary supports Widevine, but the CDM is proprietary and can't be redistributed. Sideload it once by copying a `WidevineCdm/` directory from a real Chrome install next to the binary (full steps in [#96](https://github.com/CloakHQ/CloakBrowser/issues/96)):
+
+```bash
+cp -r /opt/google/chrome/WidevineCdm ~/.cloakbrowser/chromium-<version>/WidevineCdm
+```
+
+With the CDM in place, `launchPersistentContext()` enables Widevine on the **first** launch — the wrapper auto-seeds the CDM hint file into the profile. This plays DRM-protected video (Netflix, Spotify Web) and makes a persistent profile present as a regular Chrome install to detection services that probe for DRM/EME support. **Linux only.** A sideloaded CDM is the opt-in (no flag); set `CLOAKBROWSER_WIDEVINE_CDM` for a custom path or `CLOAKBROWSER_WIDEVINE=0` to disable. See the [main README](https://github.com/CloakHQ/CloakBrowser#widevine--drm) for details.
 
 ## Migrate From Playwright
 

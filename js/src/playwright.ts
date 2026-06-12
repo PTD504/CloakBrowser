@@ -10,6 +10,7 @@ import { buildArgs } from "./args.js";
 import { ensureBinary } from "./download.js";
 import { resolveProxyConfig } from "./proxy.js";
 import { maybeResolveGeoip, resolveWebrtcArgs } from "./geoip.js";
+import { seedWidevineHint } from "./widevine.js";
 
 /** @internal Accept both timezone and timezoneId — either works, no warning. Exported for testing. */
 export function resolveTimezone<T extends { timezone?: string; timezoneId?: string }>(options: T): T {
@@ -42,6 +43,26 @@ function filterStealthCtxOptions(ctx?: BrowserContextOptions): Partial<BrowserCo
     );
   }
   return rest;
+}
+
+/**
+ * Build Playwright BrowserContext options for CloakBrowser without launching a browser
+ * or creating a context.
+ *
+ * Useful when integrating CloakBrowser with an existing Playwright Browser while
+ * keeping the wrapper's stealth-safe defaults for `newContext()`.
+ */
+export function buildContextOptions(
+  options: LaunchContextOptions = {}
+): BrowserContextOptions {
+  return {
+    // contextOptions first — explicit wrapper fields below override it.
+    // filterStealthCtxOptions strips locale/timezoneId to prevent CDP detection.
+    ...filterStealthCtxOptions(options.contextOptions),
+    ...(options.userAgent ? { userAgent: options.userAgent } : {}),
+    viewport: options.viewport === undefined ? DEFAULT_VIEWPORT : options.viewport,
+    ...(options.colorScheme ? { colorScheme: options.colorScheme } : {}),
+  } as BrowserContextOptions;
 }
 
 /**
@@ -144,14 +165,7 @@ export async function launchContext(
 
   let context: BrowserContext;
   try {
-    context = await browser.newContext({
-      // contextOptions first — explicit wrapper fields below override it.
-      // filterStealthCtxOptions strips locale/timezoneId to prevent CDP detection.
-      ...filterStealthCtxOptions(options.contextOptions),
-      ...(options.userAgent ? { userAgent: options.userAgent } : {}),
-      viewport: options.viewport === undefined ? DEFAULT_VIEWPORT : options.viewport,
-      ...(options.colorScheme ? { colorScheme: options.colorScheme } : {}),
-    });
+    context = await browser.newContext(buildContextOptions(options));
   } catch (err) {
     await browser.close();
     throw err;
@@ -214,6 +228,8 @@ export async function launchPersistentContext(
   }
   const args = buildArgs({ ...options, ...resolved, args: [...(resolvedArgs ?? []), ...proxyArgs] });
 
+  seedWidevineHint(options.userDataDir, binaryPath);
+
   // locale and timezone are set via binary flags (--lang, --fingerprint-timezone)
   // — NOT via Playwright context kwargs which use detectable CDP emulation.
   const context = await chromium.launchPersistentContext(options.userDataDir, {
@@ -222,12 +238,7 @@ export async function launchPersistentContext(
     args,
     ignoreDefaultArgs: IGNORE_DEFAULT_ARGS,
     ...(proxyOption ? { proxy: proxyOption } : {}),
-    // contextOptions before explicit wrapper fields so explicit wins.
-    // filterStealthCtxOptions strips locale/timezoneId to prevent CDP detection.
-    ...filterStealthCtxOptions(options.contextOptions),
-    ...(options.userAgent ? { userAgent: options.userAgent } : {}),
-    viewport: options.viewport === undefined ? DEFAULT_VIEWPORT : options.viewport,
-    ...(options.colorScheme ? { colorScheme: options.colorScheme } : {}),
+    ...buildContextOptions(options),
     ...options.launchOptions,
   });
 

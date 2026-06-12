@@ -140,17 +140,19 @@ async def async_check_pointer_events(
 ) -> None:
     deadline = time.monotonic() + timeout / 1000.0
     attempt = 0
-    coords = {"x": x, "y": y}
 
     while True:
         try:
             loc = page.locator(selector).first
-            result = await loc.evaluate(_POINTER_EVENTS_LOCATOR_JS, coords)
+            box = await loc.bounding_box(timeout=max(1, min((deadline - time.monotonic()) * 1000, 1000)))
+            result = await loc.evaluate(_POINTER_EVENTS_LOCATOR_JS, {"x": x, "y": y, "box": box})
         except Exception as exc:
             logger.debug("pointer_events check failed for %r: %s", selector, exc)
             result = None
 
-        if result and result.get("hit", False):
+        # Proceed if the check confirms a hit, or if it could not be determined
+        # (None) — failing closed would block legitimate clicks.
+        if result is None or result.get("hit", False):
             return
 
         covering = (result or {}).get("covering", "unknown")
@@ -227,15 +229,16 @@ async def async_check_pointer_events_handle(
     deadline = time.monotonic() + timeout / 1000.0
     attempt = 0
 
-    coords = {"x": x, "y": y}
-
     while True:
         try:
-            result = await el.evaluate(_POINTER_EVENTS_HANDLE_JS, coords)
+            box = await el.bounding_box()
+            result = await el.evaluate(_POINTER_EVENTS_HANDLE_JS, {"x": x, "y": y, "box": box})
         except Exception:
             result = None
 
-        if result and result.get("hit", False):
+        # Proceed if the check confirms a hit, or if it could not be determined
+        # (None) — failing closed would block legitimate clicks.
+        if result is None or result.get("hit", False):
             return
 
         covering = (result or {}).get("covering", "unknown")

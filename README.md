@@ -59,7 +59,7 @@ from cloakbrowser import launch
 
 browser = launch()
 page = browser.new_page()
-page.goto("https://protected-site.com")  # no more blocks
+page.goto("https://example.com")
 browser.close()
 ```
 
@@ -69,11 +69,33 @@ import { launch } from 'cloakbrowser';
 
 const browser = await launch();
 const page = await browser.newPage();
-await page.goto('https://protected-site.com');
+await page.goto('https://example.com');
 await browser.close();
 ```
 
 Also works with Puppeteer: `import { launch } from 'cloakbrowser/puppeteer'` ([details](#puppeteer))
+
+**For sites with anti-bot protection**, add a residential proxy and these flags:
+
+```python
+browser = launch(
+    proxy="http://user:pass@residential-proxy:port",  # residential IP, not datacenter
+    geoip=True,       # match timezone + locale to proxy IP
+    headless=False,    # some sites detect headless even with C++ patches
+    humanize=True,     # human-like mouse, keyboard, scroll
+)
+```
+
+```javascript
+const browser = await launch({
+    proxy: 'http://user:pass@residential-proxy:port',
+    geoip: true,
+    headless: false,
+    humanize: true,
+});
+```
+
+See [Troubleshooting](#troubleshooting) for site-specific issues (FingerprintJS, Kasada, reCAPTCHA).
 
 ## Install
 
@@ -128,7 +150,7 @@ Open [http://localhost:8080](http://localhost:8080). Create a profile. Click **L
 
 ---
 
-## Latest: v0.3.30 (Chromium 146.0.7680.177.5)
+## Latest: v0.3.31 (Chromium 146.0.7680.177.5)
 
 - **58 fingerprint patches** — rendering consistency improvements across Linux and Windows, corrected GPU/display/graphics parameters to match stock Chrome 146 profiles
 - **Windows native GPU passthrough** — real hardware values pass through directly instead of being spoofed, matching real browser behavior
@@ -361,6 +383,7 @@ Use this when you need to:
 - **Bypass incognito detection** (some sites flag empty, ephemeral profiles)
 - **Load Chrome extensions** (extensions only work from a real user data dir)
 - **Build natural browsing history** (cached fonts, service workers, IndexedDB accumulate over time, making the profile look more realistic)
+- **Play DRM-protected video** (Widevine) — with a sideloaded CDM, the wrapper enables Widevine on the first launch (see [Widevine / DRM](#widevine--drm))
 
 ```python
 from cloakbrowser import launch_persistent_context
@@ -396,6 +419,26 @@ ctx = launch_persistent_context("./my-profile", args=["--fingerprint-storage-quo
 |---|---|---|
 | Default (auto, ~500MB) | PASS | -10 (flagged as incognito) |
 | `--fingerprint-storage-quota=5000` | May trigger detection | PASS (appears non-incognito) |
+
+### Widevine / DRM
+
+The binary is built with Widevine support, but the Widevine CDM is a proprietary Google component we can't redistribute. Sideload it once by copying a `WidevineCdm/` directory from a real Chrome install next to the binary (full steps in [#96](https://github.com/CloakHQ/CloakBrowser/issues/96)):
+
+```bash
+cp -r /opt/google/chrome/WidevineCdm ~/.cloakbrowser/chromium-<version>/WidevineCdm
+```
+
+With the CDM in place, `launch_persistent_context()` enables Widevine **on the first launch** — the wrapper auto-writes the CDM hint file into the profile, so you don't need the manual two-launch workaround. This lets you play DRM-protected video (e.g. Netflix, Spotify Web) and makes a persistent profile present as a regular Chrome install to detection services that probe for DRM/EME support as a real-browser signal.
+
+```python
+from cloakbrowser import launch_persistent_context
+
+# WidevineCdm sideloaded next to the binary -> Widevine works on first launch
+ctx = launch_persistent_context("./my-profile", headless=False)
+```
+
+- **Linux only.** Chromium's hint-file mechanism is Linux/ChromeOS-specific. On Windows the CDM can't initialise (DRM host verification) and macOS uses a different layout, so seeding is a no-op there.
+- **Auto by presence.** No flag needed — a sideloaded CDM is the opt-in. Point at a CDM in a non-default location with `CLOAKBROWSER_WIDEVINE_CDM=/path/to/WidevineCdm`, or disable seeding entirely with `CLOAKBROWSER_WIDEVINE=0`.
 
 ### CLI
 
@@ -580,6 +623,8 @@ Access the original un-patched Playwright page at `page._original` if you need r
 | `CLOAKBROWSER_AUTO_UPDATE` | `true` | Set to `false` to disable background update checks |
 | `CLOAKBROWSER_SKIP_CHECKSUM` | `false` | Set to `true` to skip SHA-256 verification after download |
 | `CLOAKBROWSER_GEOIP_TIMEOUT_SECONDS` | `5` | Max seconds for GeoIP resolution before continuing without it |
+| `CLOAKBROWSER_WIDEVINE_CDM` | — | Path to a sideloaded `WidevineCdm` directory (overrides auto-detection next to the binary). See [Widevine / DRM](#widevine--drm) |
+| `CLOAKBROWSER_WIDEVINE` | `1` | Set to `0` to disable automatic Widevine hint-file seeding for persistent contexts |
 
 ## Fingerprint Management
 
@@ -818,6 +863,26 @@ print(page.title())
 browser.close()
 ```
 
+If your framework needs a direct WebSocket endpoint, fetch Chrome's discovery document and use the rewritten `webSocketDebuggerUrl`. The URL points back through `cloakserve` so the CDP proxy can keep per-seed routing intact:
+
+```bash
+curl http://localhost:9222/json/version | jq -r .webSocketDebuggerUrl
+# ws://localhost:9222/devtools/browser/<browser-id>
+
+curl 'http://localhost:9222/json/version?fingerprint=11111' | jq -r .webSocketDebuggerUrl
+# ws://localhost:9222/fingerprint/11111/devtools/browser/<browser-id>
+```
+
+When `cloakserve` runs behind a reverse proxy or TLS terminator, forward the public host/protocol headers so generated WebSocket URLs use the address clients can actually reach:
+
+```nginx
+proxy_set_header Host $host;
+proxy_set_header X-Forwarded-Host $host;
+proxy_set_header X-Forwarded-Proto $scheme;
+```
+
+With those headers, `/json/version` returns public endpoints such as `wss://cdp.example.com/fingerprint/11111/devtools/browser/<browser-id>` instead of an internal container host.
+
 Pass extra flags to the browser:
 
 ```bash
@@ -828,6 +893,10 @@ docker run -d --name cloak -p 127.0.0.1:9222:9222 cloakhq/cloakbrowser \
 # Headed mode (renders to Xvfb inside container)
 docker run -d --name cloak -p 127.0.0.1:9222:9222 cloakhq/cloakbrowser \
   cloakserve --headless=false
+
+# Reap disconnected per-seed browser processes after 5 minutes
+docker run -d --name cloak -p 127.0.0.1:9222:9222 cloakhq/cloakbrowser \
+  cloakserve --idle-timeout=300
 ```
 
 Stop the server:
@@ -879,7 +948,9 @@ b4 = pw.chromium.connect_over_cdp(
 )
 ```
 
-Supported query params: `fingerprint`, `timezone`, `locale`, `platform`, `platform-version`, `brand`, `brand-version`, `gpu-vendor`, `gpu-renderer`, `hardware-concurrency`, `device-memory`, `screen-width`, `screen-height`, `proxy`, `geoip`. Same seed reuses the same process (first connection's params win). No seed = shared default process (backward compatible). Check active processes at `GET /` (returns JSON with PIDs, ports, and connection counts).
+Supported query params: `fingerprint`, `timezone`, `locale`, `platform`, `platform-version`, `brand`, `brand-version`, `gpu-vendor`, `gpu-renderer`, `hardware-concurrency`, `device-memory`, `screen-width`, `screen-height`, `proxy`, `geoip`. Same seed reuses the same process (first connection's params win). No seed = shared default process (backward compatible).
+
+By default, per-seed processes stay alive until `cloakserve` exits. If clients create many unique seeds, set `--idle-timeout=SECONDS` or `CLOAKSERVE_IDLE_TIMEOUT=SECONDS` to automatically terminate a seed's Chrome process after its last CDP WebSocket disconnects. `0`, `off`, `false`, `none`, or `disabled` disable idle cleanup. When cleanup runs, the seed's temporary profile directory under `--data-dir` is removed too. Check active processes at `GET /` (returns JSON with PIDs, ports, connection counts, idle timeout, and pending cleanup status).
 
 **Persistent profiles** — mount a volume to keep cookies and sessions across container restarts:
 
@@ -984,6 +1055,53 @@ browser = launch(proxy="socks5://user:pass@proxy:1080", geoip=True, headless=Fal
 ```
 
 If you're still blocked after this, check the font setup below.
+
+---
+
+### Detected by FingerprintJS?
+
+FingerprintJS (`demo.fingerprint.com/playground`) checks multiple signals. Each detection has a specific cause:
+
+| Detection | Cause | Fix |
+|-----------|-------|-----|
+| **`nodriver` / bad bot** | IP reputation or missing flags | Residential proxy + config below |
+| **Browser tampering** | Noise injection detected by ML | `--fingerprint-noise=false` |
+| **Virtual machine** | Screen dimensions don't match viewport | `--fingerprint-screen-width/height` matching viewport |
+| **Incognito** | Storage quota normalized to ~500MB | Expected tradeoff — see below |
+
+Config that passes FPJS (verified on v0.3.30, Linux + Windows):
+
+```python
+browser = launch(
+    headless=False,
+    proxy="http://user:pass@residential-proxy:port",
+    geoip=True,
+    args=[
+        "--fingerprint-noise=false",          # prevents tampering detection
+        "--fingerprint-screen-width=1920",    # match your viewport
+        "--fingerprint-screen-height=1080",
+    ],
+)
+```
+
+```javascript
+const browser = await launch({
+    headless: false,
+    proxy: 'http://user:pass@residential-proxy:port',
+    geoip: true,
+    args: [
+        '--fingerprint-noise=false',
+        '--fingerprint-screen-width=1920',
+        '--fingerprint-screen-height=1080',
+    ],
+});
+```
+
+For persistent contexts (`launch_persistent_context` / `launchPersistentContext`), also add `--fingerprint-storage-quota=500` to the args.
+
+**Storage quota tradeoff:** The binary normalizes storage quota to ~500MB to pass FPJS, but this makes the session look like incognito to other detection services (e.g. BrowserScan's `notPrivate` check, -10 points). Setting `--fingerprint-storage-quota=5000` passes incognito checks but may trigger FPJS. With quota alone you can't satisfy both — choose based on what your target site checks. See the [storage quota tradeoff table](#launch_persistent_context) for details.
+
+**Resolving the tradeoff (Linux):** Sideloading the Widevine CDM lets a persistent context pass FPJS at a higher quota, so you can satisfy both at once. See [Widevine / DRM](#widevine--drm).
 
 ---
 
@@ -1203,7 +1321,7 @@ Issues and PRs welcome. If something isn't working, [open an issue](https://gith
 - [@evelaa123](https://github.com/evelaa123) — humanize behavior, persistent contexts, Windows fix
 - [@yahooguntu](https://github.com/yahooguntu) — persistent contexts
 - [@kitiho](https://github.com/kitiho) — null viewport fix
-- [@eofreternal](https://github.com/eofreternal) — humanConfig type fix, humanized method option types
+- [@eofreternal](https://github.com/eofreternal) — humanConfig type fix, humanized method option types, iframe pointer-events fix
 - [@manaskarra](https://github.com/manaskarra) — iframe scope fix for humanized frame actions, GeoIP timeout guard
 - [@Youhai020616](https://github.com/Youhai020616) — SOCKS5 credential encoding logging
 - [@AlexTech314](https://github.com/AlexTech314) — AWS Lambda integration, cold-start hardening
@@ -1213,4 +1331,5 @@ Issues and PRs welcome. If something isn't working, [open an issue](https://gith
 - [@Seryiza](https://github.com/Seryiza) — Nix/NixOS flake
 - [@245678000000](https://github.com/245678000000) — package-lock sync
 - [@honor2030](https://github.com/honor2030) — cloakserve WebSocket origin guard, composable JS launch helpers
+- [@sparanoid](https://github.com/sparanoid) — Docker Xvfb lock cleanup
 - [@0xlally](https://github.com/0xlally) — security reports (cloakserve path traversal, WebSocket origin bypass)
